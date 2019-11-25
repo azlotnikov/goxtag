@@ -1,0 +1,11 @@
+language: go
+go_import_path: github.com/azlotnikov/goxtag
+
+matrix:
+  allow_failures:
+    - go: tip
+
+before_install:
+  - go get github.com/mattn/goveralls
+script:
+  - $HOME/gopath/bin/goveralls -service=travis-ci
