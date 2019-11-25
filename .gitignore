@@ -1,0 +1,11 @@
+# JetBrains files
+.project
+.idea
+*.iml
+cover.out
+
+# Vendor
+/vendor/
+
+# Log files
+/logs/
