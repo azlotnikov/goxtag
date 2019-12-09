@@ -16,7 +16,7 @@ const (
 	mapIsNotSupportedError = "map type is not currently supported"
 )
 
-// CannotUnmarshalError represents an error returned by the goquery Unmarshaler
+// CannotUnmarshalError represents an error returned by the htmlquery Unmarshaler
 // and helps consumers in programmatically diagnosing the cause of their error.
 type CannotUnmarshalError struct {
 	Err      error

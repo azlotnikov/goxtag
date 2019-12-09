@@ -16,7 +16,7 @@ import (
 // Structured representation for github file name table
 type example struct {
     Title string `xpath:"//h1"`
-    Files []string `xpath:".//table[contains(concat(' ',normalize-space(@class),' '),' files ')]//tbody//tr[contains(concat(' ',normalize-space(@class),' '),' js-navigation-item ')]//td[contains(concat(' ',normalize-space(@class),' '),' content ')]|.//text"`
+    Files []string `xpath:".//table[contains(concat(' ',normalize-space(@class),' '),' files ')]//tbody//tr[contains(concat(' ',normalize-space(@class),' '),' js-navigation-item ')]//td[contains(concat(' ',normalize-space(@class),' '),' content ')]"`
 }
 
 func main() {

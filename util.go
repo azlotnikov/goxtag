@@ -11,7 +11,7 @@ func TypeDeref(t reflect.Type) reflect.Type {
 }
 
 // indirect is stolen mostly from pkg/encoding/json/decode.go and removed some
-// cases (handling `null`) that goquery doesn't need to handle.
+// cases (handling `null`) that htmlquery doesn't need to handle.
 func indirect(v reflect.Value) (Unmarshaler, reflect.Value) {
 	if v.Kind() != reflect.Ptr && v.Type().Name() != "" && v.CanAddr() {
 		v = v.Addr()

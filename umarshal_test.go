@@ -172,6 +172,27 @@ func TestAttributes(t *testing.T) {
 	assert.Equal(t, []int{3, 1, 4, 2, 5}, a.Orders)
 }
 
+func TestNotRequired(t *testing.T) {
+	asrt := assert.New(t)
+
+	var a struct {
+		NotExisted int `xpath:".//*[contains(concat(' ',normalize-space(@class),' '),' name ')]/someTag" xpath_required:"false"`
+	}
+
+	asrt.NoError(Unmarshal([]byte(testPage), &a))
+	assert.Equal(t, 0, a.NotExisted)
+}
+
+func TestRequired(t *testing.T) {
+	asrt := assert.New(t)
+
+	var a struct {
+		NotExisted int `xpath:".//*[contains(concat(' ',normalize-space(@class),' '),' name ')]/someTag"`
+	}
+
+	asrt.Error(Unmarshal([]byte(testPage), &a))
+}
+
 func TestUnmarshal(t *testing.T) {
 	asrt := assert.New(t)
 

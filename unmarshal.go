@@ -15,85 +15,44 @@ type Unmarshaler interface {
 
 type valFunc func(doc *Document) string
 
-type xpathTag string
+type xpathTag struct {
+	tag      string
+	required bool
+}
 
 const (
-	tagName   = "xpath"
-	ignoreTag = "!ignore"
+	tagName     = "xpath"
+	ignoreTag   = "!ignore"
+	requiredTag = "xpath_required"
 )
 
 var (
 	textVal valFunc = func(doc *Document) string {
 		return strings.TrimSpace(doc.Text())
 	}
-	htmlVal = func(doc *Document) string {
-		str, _ := doc.Html()
-		return strings.TrimSpace(str)
-	}
 
 	vfMut   = sync.Mutex{}
-	vfCache = map[xpathTag]valFunc{}
+	vfCache = map[string]valFunc{}
 )
-
-func attrFunc(attr string) valFunc {
-	return func(doc *Document) string {
-		str, _ := doc.Attr(attr)
-		return str
-	}
-}
 
 func (tag xpathTag) valFunc() valFunc {
 	vfMut.Lock()
 	defer vfMut.Unlock()
 
-	if fn := vfCache[tag]; fn != nil {
+	if fn := vfCache[tag.tag]; fn != nil {
 		return fn
 	}
 
-	srcArr := strings.Split(string(tag), ",")
-	if len(srcArr) < 2 {
-		vfCache[tag] = textVal
-		return textVal
-	}
+	f := textVal
 
-	src := srcArr[1]
-
-	var f valFunc
-	switch {
-	case src[0] == '[':
-		// [someattr] will return value of .Attr("someattr")
-		attr := src[1 : len(src)-1]
-		f = attrFunc(attr)
-	case src == "html":
-		f = htmlVal
-	case src == "text":
-		f = textVal
-	default:
-		f = textVal
-	}
-
-	vfCache[tag] = f
+	vfCache[tag.tag] = f
 	return f
-}
-
-// popVal should allow us to handle arbitrarily nested maps as well as the
-// cleanly handling the possiblity of map[literal]literal by just delegating
-// back to `unmarshalByType`.
-func (tag xpathTag) popVal() xpathTag {
-	arr := strings.Split(string(tag), ",")
-	if len(arr) < 2 {
-		return tag
-	}
-	newA := []string{arr[0]}
-	newA = append(newA, arr[2:]...)
-
-	return xpathTag(strings.Join(newA, ","))
 }
 
 // Unmarshal takes a byte slice and a destination pointer to any
 // interface{}, and unmarshals the document into the destination based on the
 // rules above. Any error returned here will likely be of type
-// CannotUnmarshalError, though an initial goquery error will pass through
+// CannotUnmarshalError, though an initial htmlquery error will pass through
 // directly.
 func Unmarshal(bs []byte, v interface{}) error {
 	root, err := html.Parse(bytes.NewReader(bs))
@@ -117,8 +76,6 @@ func wrapUnmErr(err error, v reflect.Value) error {
 	}
 }
 
-// UnmarshalSelection will unmarshal a goquery.goquery.Selection into an interface
-// appropriately annoated with goquery tags.
 func UnmarshalSelection(doc *Document, iface interface{}) error {
 	v := reflect.ValueOf(iface)
 
@@ -137,7 +94,7 @@ func UnmarshalSelection(doc *Document, iface interface{}) error {
 		return wrapUnmErr(u.UnmarshalHTML(doc.Nodes), v)
 	}
 
-	return unmarshalByType(doc, v, "")
+	return unmarshalByType(doc, v, xpathTag{})
 }
 
 func unmarshalByType(doc *Document, v reflect.Value, tag xpathTag) error {
@@ -172,7 +129,7 @@ func unmarshalByType(doc *Document, v reflect.Value, tag xpathTag) error {
 	default:
 		vf := tag.valFunc()
 		str := vf(doc)
-		err := unmarshalLiteral(str, v)
+		err := unmarshalLiteral(str, v, tag.required)
 		if err != nil {
 			return &CannotUnmarshalError{
 				V:      v,
@@ -185,7 +142,7 @@ func unmarshalByType(doc *Document, v reflect.Value, tag xpathTag) error {
 	}
 }
 
-func unmarshalLiteral(s string, v reflect.Value) error {
+func unmarshalLiteral(s string, v reflect.Value, required bool) error {
 	t := v.Type()
 
 	switch t.Kind() {
@@ -199,25 +156,37 @@ func unmarshalLiteral(s string, v reflect.Value) error {
 	case reflect.Bool:
 		i, err := strconv.ParseBool(s)
 		if err != nil {
-			return err
+			if required {
+				return err
+			}
+			return nil
 		}
 		v.SetBool(i)
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		i, err := strconv.ParseInt(s, 10, 64)
 		if err != nil {
-			return err
+			if required {
+				return err
+			}
+			return nil
 		}
 		v.SetInt(i)
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 		i, err := strconv.ParseUint(s, 10, 64)
 		if err != nil {
-			return err
+			if required {
+				return err
+			}
+			return nil
 		}
 		v.SetUint(i)
 	case reflect.Float32, reflect.Float64:
 		i, err := strconv.ParseFloat(s, 64)
 		if err != nil {
-			return err
+			if required {
+				return err
+			}
+			return nil
 		}
 		v.SetFloat(i)
 	case reflect.String:
@@ -230,33 +199,44 @@ func unmarshalStruct(doc *Document, v reflect.Value) error {
 	t := v.Type()
 
 	for i := 0; i < t.NumField(); i++ {
-		tag := xpathTag(t.Field(i).Tag.Get(tagName))
+		tag := xpathTag{
+			tag:      t.Field(i).Tag.Get(tagName),
+			required: true,
+		}
 
-		if tag == ignoreTag {
+		if tag.tag == ignoreTag {
 			continue
 		}
 
-		if tag == "" {
+		if tag.tag == "" {
 			if u, _ := indirect(v.Field(i)); u == nil {
 				continue
 			}
 		}
 
 		// If tag is empty and the object doesn't implement Unmarshaler, skip
-		if tag == "" {
+		if tag.tag == "" {
 			if u, _ := indirect(v.Field(i)); u == nil {
 				continue
 			}
 		}
 
+		required := t.Field(i).Tag.Get(requiredTag)
+		if required != "" {
+			var err error
+			tag.required, err = strconv.ParseBool(required)
+			if err != nil {
+				return err
+			}
+		}
+
 		sel := doc
-		if tag != "" {
-			selStr := string(tag)
+		if tag.tag != "" {
+			selStr := tag.tag
 			sel = doc.Find(selStr)
 		}
 
-		err := unmarshalByType(sel, v.Field(i), tag)
-		if err != nil {
+		if err := unmarshalByType(sel, v.Field(i), tag); err != nil {
 			return &CannotUnmarshalError{
 				Reason:   typeConversionError,
 				Err:      err,
