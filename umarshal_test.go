@@ -166,21 +166,27 @@ func TestAttributes(t *testing.T) {
 
 	var a struct {
 		Orders []int `xpath:".//*[@id='resources']//*[contains(concat(' ',normalize-space(@class),' '),' resource ')]/@order"`
+		Order  int   `xpath:"(.//*[@id='resources']//*[contains(concat(' ',normalize-space(@class),' '),' resource ')]/@order)[1]"`
 	}
 
 	asrt.NoError(Unmarshal([]byte(testPage), &a))
 	assert.Equal(t, []int{3, 1, 4, 2, 5}, a.Orders)
+	assert.Equal(t, 3, a.Order)
 }
 
 func TestNotRequired(t *testing.T) {
 	asrt := assert.New(t)
 
 	var a struct {
+		UnknownStruct *struct {
+			A int `xpath:".//id"`
+		} `xpath:".//navbar" xpath_required:"false"`
 		NotExisted int `xpath:".//*[contains(concat(' ',normalize-space(@class),' '),' name ')]/someTag" xpath_required:"false"`
 	}
 
 	asrt.NoError(Unmarshal([]byte(testPage), &a))
 	assert.Equal(t, 0, a.NotExisted)
+	assert.Nil(t, a.UnknownStruct)
 }
 
 func TestRequired(t *testing.T) {
@@ -313,10 +319,10 @@ func TestDirectInsertion(t *testing.T) {
 func TestInterfaceDecode(t *testing.T) {
 	asrt := assert.New(t)
 	var a struct {
-		IF interface{} `xpath:".//*[@id='structured-list']//li"`
+		IF interface{} `xpath:".//*[@id='structured-list']//li[2]"`
 	}
 	asrt.NoError(Unmarshal([]byte(testPage), &a))
-	asrt.Equal("foobarbaz", a.IF.(string))
+	asrt.Equal("bar", a.IF.(string))
 }
 
 func checkErr(asrt *assert.Assertions, err error) *CannotUnmarshalError {

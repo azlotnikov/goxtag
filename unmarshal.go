@@ -97,6 +97,36 @@ func UnmarshalSelection(doc *Document, iface interface{}) error {
 	return unmarshalByType(doc, v, xpathTag{})
 }
 
+func findByTag(doc *Document, tag xpathTag) (*Document, error) {
+	if tag.tag != "" {
+		return doc.Find(tag.tag), nil
+	}
+	return doc, nil
+}
+
+func findOneByTag(doc *Document, tag xpathTag) (*Document, error) {
+	if tag.tag != "" {
+		return doc.FindOne(tag.tag)
+	}
+	return doc, nil
+}
+
+func findForTypeByTag(doc *Document, v reflect.Value, tag xpathTag) (*Document, error) {
+	t := v.Type()
+	switch t.Kind() {
+	case reflect.Struct:
+		return findByTag(doc, tag)
+	case reflect.Slice:
+		return findByTag(doc, tag)
+	case reflect.Array:
+		return findByTag(doc, tag)
+	case reflect.Map:
+		return nil, nil
+	default:
+		return findOneByTag(doc, tag)
+	}
+}
+
 func unmarshalByType(doc *Document, v reflect.Value, tag xpathTag) error {
 	u, v := indirect(v)
 
@@ -230,10 +260,13 @@ func unmarshalStruct(doc *Document, v reflect.Value) error {
 			}
 		}
 
-		sel := doc
-		if tag.tag != "" {
-			selStr := tag.tag
-			sel = doc.Find(selStr)
+		sel, err := findForTypeByTag(doc, v.Field(i), tag)
+		if err != nil {
+			return err
+		}
+
+		if !tag.required && sel.IsEmpty() {
+			break
 		}
 
 		if err := unmarshalByType(sel, v.Field(i), tag); err != nil {

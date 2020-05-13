@@ -31,6 +31,10 @@ func (doc *Document) Length() int {
 	return len(doc.Nodes)
 }
 
+func (doc *Document) IsEmpty() bool {
+	return doc.Nodes == nil || len(doc.Nodes) == 0
+}
+
 func (doc *Document) Html() (ret string, e error) {
 	// Since there is no .innerHtml, the HTML content must be re-created from
 	// the nodes using html.Render.
@@ -82,6 +86,15 @@ func (doc *Document) Attr(attrName string) (val string, exists bool) {
 
 func (doc *Document) Find(selector string) *Document {
 	return newDocumentWithNodes(htmlquery.Find(doc.Nodes[0], selector))
+}
+
+func (doc *Document) FindOne(selector string) (*Document, error) {
+	node := htmlquery.FindOne(doc.Nodes[0], selector)
+	var nodes []*html.Node
+	if node != nil {
+		nodes = []*html.Node{node}
+	}
+	return newDocumentWithNodes(nodes), nil
 }
 
 func (doc *Document) Eq(index int) *Document {
