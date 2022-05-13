@@ -1,9 +1,14 @@
 # goxtag
+![GitHub go.mod Go version](https://img.shields.io/github/go-mod/go-version/azlotnikov/goxtag)
 [![Build Status](https://travis-ci.org/azlotnikov/goxtag.svg?branch=master)](https://travis-ci.org/azlotnikov/goxtag)
 [![Coverage Status](https://coveralls.io/repos/github/azlotnikov/goxtag/badge.svg?branch=master)](https://coveralls.io/github/azlotnikov/goxtag?branch=master)
+---
+This package is an analog of [github.com/andrewstuart/goq](https://github.com/andrewstuart/goq) for xpath selectors.
+
+## Install
+`go get -u github.com/azlotnikov/goxtag`
 
 ## Example
-
 ```go
 package main
 
@@ -36,8 +41,3 @@ func main() {
     log.Println(ex.Title, ex.Files)
 }
 ```
-
-## Details
-
-### goxtag
-This package is an analog of [github.com/andrewstuart/goq](https://github.com/andrewstuart/goq) for xpath selectors.
