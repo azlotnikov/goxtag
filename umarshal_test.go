@@ -34,6 +34,7 @@ const testPage = `<!DOCTYPE html>
         </li>
       </ul>
 	  <div class="name"></div>
+	  <div class="some-div">Some div</div>
       <h2 id="anchor-header"><a href="https://foo.com">FOO!!!</a></h2>
     </h1>
 		<ul id="structured-list">
@@ -60,6 +61,13 @@ const testPage = `<!DOCTYPE html>
 			<float>1.2345</float>
 			<int>-123</int>
 			<uint>100</uint>
+		</div>
+		<div class="span">
+			1
+			<span class="some class">
+				2
+			</span>
+			3
 		</div>
   </body>
 </html>
@@ -97,7 +105,7 @@ type Attr struct {
 func (f *FooBar) UnmarshalHTML(nodes []*html.Node) error {
 	f.unmarshalWasCalled = true
 
-	s := newDocumentWithNodes(nodes)
+	s := NewDocumentWithNodes(nodes)
 
 	f.Attrs = []Attr{}
 	for _, node := range s.Find(".//*[contains(concat(' ',normalize-space(@class),' '),' foobar ')]//thing").Nodes {
@@ -174,6 +182,35 @@ func TestAttributes(t *testing.T) {
 	assert.Equal(t, 3, a.Order)
 }
 
+func TestText(t *testing.T) {
+	asrt := assert.New(t)
+
+	var a struct {
+		One      int    `xpath:".//body//div[contains(concat(' ',normalize-space(@class),' '),' span ')]/text()[1]"`
+		Three    int    `xpath:".//body//div[contains(concat(' ',normalize-space(@class),' '),' span ')]/text()[2]"`
+		OneThree string `xpath:".//body//div[contains(concat(' ',normalize-space(@class),' '),' span ')]/text()"`
+		All      string `xpath:".//body//div[contains(concat(' ',normalize-space(@class),' '),' span ')]//text()"`
+	}
+
+	asrt.NoError(Unmarshal([]byte(testPage), &a))
+	assert.Equal(t, 1, a.One)
+	assert.Equal(t, 3, a.Three)
+	assert.Equal(t, "1\n\t\t\t\n\t\t\t3", a.OneThree)
+	assert.Equal(t, "1\n\t\t\t\n\t\t\t\t2\n\t\t\t\n\t\t\t3", a.All)
+}
+
+func TestMultipleNodesError(t *testing.T) {
+	asrt := assert.New(t)
+
+	var a struct {
+		Order int `xpath:".//*[@id='resources']//*[contains(concat(' ',normalize-space(@class),' '),' resource ')]/@order"`
+	}
+
+	err := Unmarshal([]byte(testPage), &a)
+	asrt.Error(err)
+	asrt.Equal(`could not unmarshal into 'int' (type int): multiple nodes detected for selector tag: './/*[@id='resources']//*[contains(concat(' ',normalize-space(@class),' '),' resource ')]/@order'`, err.Error())
+}
+
 func TestNotRequired(t *testing.T) {
 	asrt := assert.New(t)
 
@@ -181,15 +218,17 @@ func TestNotRequired(t *testing.T) {
 		UnknownStruct *struct {
 			A int `xpath:".//id"`
 		} `xpath:".//navbar" xpath_required:"false"`
-		NotExisted int `xpath:".//*[contains(concat(' ',normalize-space(@class),' '),' name ')]/someTag" xpath_required:"false"`
+		NotExisted int    `xpath:".//*[contains(concat(' ',normalize-space(@class),' '),' name ')]/someTag" xpath_required:"false"`
+		Existed    string `xpath:".//*[contains(concat(' ',normalize-space(@class),' '),' some-div ')]/text()"`
 	}
 
 	asrt.NoError(Unmarshal([]byte(testPage), &a))
 	assert.Equal(t, 0, a.NotExisted)
+	assert.Equal(t, "Some div", a.Existed)
 	assert.Nil(t, a.UnknownStruct)
 }
 
-func TestRequired(t *testing.T) {
+func TestRequiredInt(t *testing.T) {
 	asrt := assert.New(t)
 
 	var a struct {
@@ -197,6 +236,43 @@ func TestRequired(t *testing.T) {
 	}
 
 	asrt.Error(Unmarshal([]byte(testPage), &a))
+}
+
+func TestRequiredStruct(t *testing.T) {
+	asrt := assert.New(t)
+
+	var a struct {
+		UnknownStruct *struct {
+			A int `xpath:".//id"`
+		} `xpath:".//navbar"`
+	}
+
+	err := Unmarshal([]byte(testPage), &a)
+	asrt.Error(err)
+	asrt.Equal("could not unmarshal into 'struct { UnknownStruct *struct { A int \"xpath:\\\".//id\\\"\" } \"xpath:\\\".//navbar\\\"\" }' (type struct { UnknownStruct *struct { A int \"xpath:\\\".//id\\\"\" } \"xpath:\\\".//navbar\\\"\" }): node not found in document tag: './/navbar'", err.Error())
+}
+
+func TestRequiredSlice(t *testing.T) {
+	asrt := assert.New(t)
+
+	var a struct {
+		Orders []int `xpath:".//blabla"`
+	}
+
+	err := Unmarshal([]byte(testPage), &a)
+	asrt.Error(err)
+	asrt.Equal("could not unmarshal into 'struct { Orders []int \"xpath:\\\".//blabla\\\"\" }' (type struct { Orders []int \"xpath:\\\".//blabla\\\"\" }): node not found in document tag: './/blabla'", err.Error())
+}
+
+func TestIgnore(t *testing.T) {
+	asrt := assert.New(t)
+
+	var a struct {
+		Ignored string `xpath:"-"`
+	}
+
+	asrt.NoError(Unmarshal([]byte(testPage), &a))
+	assert.Equal(t, "", a.Ignored)
 }
 
 func TestUnmarshal(t *testing.T) {
@@ -227,13 +303,11 @@ func TestUnmarshalError(t *testing.T) {
 
 	err := Unmarshal([]byte(testPage), &a)
 
-	asrt.Contains(err.Error(), "[]goxtag.ErrorFooBar[0]")
-
 	e := checkErr(asrt, err)
 	e2 := checkErr(asrt, e.Err)
 
-	asrt.Equal(errTestUnmarshal, e2.Err)
-	asrt.Equal(customUnmarshalError, e2.Reason)
+	asrt.Equal(`could not unmarshal into '[]goxtag.ErrorFooBar[0]' (type unknown: invalid value): a custom Unmarshaler implementation threw an error: A wild error appeared`, e.Error())
+	asrt.Equal(`could not unmarshal : A wild error appeared`, e2.Error())
 }
 
 func TestNilUnmarshal(t *testing.T) {
@@ -243,7 +317,7 @@ func TestNilUnmarshal(t *testing.T) {
 
 	err := Unmarshal([]byte{}, a)
 	e := checkErr(asrt, err)
-	asrt.Equal(nilValue, e.Reason)
+	asrt.Equal(nilDestination, e.Reason)
 }
 
 func TestNonPointer(t *testing.T) {

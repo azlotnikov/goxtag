@@ -8,7 +8,7 @@
 package main
 
 import (
-    "goxtag"
+    "github.com/azlotnikov/goxtag"
     "log"
     "net/http"
 )
@@ -39,4 +39,5 @@ func main() {
 
 ## Details
 
-*TODO*
+### goxtag
+This package is an analog of [github.com/andrewstuart/goq](https://github.com/andrewstuart/goq) for xpath selectors.

@@ -4,9 +4,9 @@ import (
 	"bytes"
 	"golang.org/x/net/html"
 	"reflect"
+	"regexp"
 	"strconv"
 	"strings"
-	"sync"
 )
 
 type Unmarshaler interface {
@@ -22,7 +22,7 @@ type xpathTag struct {
 
 const (
 	tagName     = "xpath"
-	ignoreTag   = "!ignore"
+	ignoreTag   = "-"
 	requiredTag = "xpath_required"
 )
 
@@ -30,23 +30,19 @@ var (
 	textVal valFunc = func(doc *Document) string {
 		return strings.TrimSpace(doc.Text())
 	}
-
-	vfMut   = sync.Mutex{}
-	vfCache = map[string]valFunc{}
+	indexRegEx = regexp.MustCompile(`\[\d+\]$`)
 )
 
-func (tag xpathTag) valFunc() valFunc {
-	vfMut.Lock()
-	defer vfMut.Unlock()
+func (tag *xpathTag) valFunc() valFunc {
+	return textVal
+}
 
-	if fn := vfCache[tag.tag]; fn != nil {
-		return fn
-	}
+func (tag *xpathTag) hasIndex() bool {
+	return indexRegEx.MatchString(tag.tag)
+}
 
-	f := textVal
-
-	vfCache[tag.tag] = f
-	return f
+func (tag *xpathTag) hasSuffix(s string) bool {
+	return strings.HasSuffix(tag.tag, s)
 }
 
 // Unmarshal takes a byte slice and a destination pointer to any
@@ -61,7 +57,7 @@ func Unmarshal(bs []byte, v interface{}) error {
 		return err
 	}
 
-	return UnmarshalSelection(newDocumentWithNode(root), v)
+	return UnmarshalSelection(NewDocumentWithNode(root), v)
 }
 
 func wrapUnmErr(err error, v reflect.Value) error {
@@ -81,11 +77,17 @@ func UnmarshalSelection(doc *Document, iface interface{}) error {
 
 	// Must come before v.IsNil() else IsNil panics on NonPointer value
 	if v.Kind() != reflect.Ptr {
-		return &CannotUnmarshalError{V: v, Reason: nonPointer}
+		return &CannotUnmarshalError{
+			V:      v,
+			Reason: nonPointer,
+		}
 	}
 
 	if iface == nil || v.IsNil() {
-		return &CannotUnmarshalError{V: v, Reason: nilValue}
+		return &CannotUnmarshalError{
+			V:      v,
+			Reason: nilDestination,
+		}
 	}
 
 	u, v := indirect(v)
@@ -112,18 +114,51 @@ func findOneByTag(doc *Document, tag xpathTag) (*Document, error) {
 }
 
 func findForTypeByTag(doc *Document, v reflect.Value, tag xpathTag) (*Document, error) {
+	var sel *Document
+	var err error
+	hasIndex := tag.hasIndex()
+	hasTextSuffix := tag.hasSuffix("text()")
+	switch {
+	case hasIndex && !hasTextSuffix:
+		sel, err = findOneByTag(doc, tag)
+	default:
+		sel, err = findByTag(doc, tag)
+	}
+	if err != nil {
+		return nil, err
+	}
+
 	t := v.Type()
+	//type may have custom Unmarshal, check unsupported types later
 	switch t.Kind() {
 	case reflect.Struct:
-		return findByTag(doc, tag)
+		return sel, nil
 	case reflect.Slice:
-		return findByTag(doc, tag)
+		return sel, nil
 	case reflect.Array:
-		return findByTag(doc, tag)
+		return sel, nil
 	case reflect.Map:
-		return nil, nil
+		return sel, nil
+	case reflect.Interface:
+		return sel, nil
+	case reflect.Ptr:
+		return sel, nil
 	default:
-		return findOneByTag(doc, tag)
+		if hasIndex || hasTextSuffix {
+			return sel, nil
+		}
+		_sel, err := findByTag(doc, tag)
+		if err != nil {
+			return nil, err
+		}
+		if _sel.Length() > 1 {
+			return nil, &CannotUnmarshalError{
+				V:      v,
+				Reason: multipleNodesDetected,
+				XPath:  tag.tag,
+			}
+		}
+		return sel, nil
 	}
 }
 
@@ -155,6 +190,7 @@ func unmarshalByType(doc *Document, v reflect.Value, tag xpathTag) error {
 		return &CannotUnmarshalError{
 			V:      v,
 			Reason: mapIsNotSupportedError,
+			XPath:  tag.tag,
 		}
 	default:
 		vf := tag.valFunc()
@@ -164,6 +200,7 @@ func unmarshalByType(doc *Document, v reflect.Value, tag xpathTag) error {
 			return &CannotUnmarshalError{
 				V:      v,
 				Reason: typeConversionError,
+				XPath:  tag.tag,
 				Err:    err,
 				Val:    str,
 			}
@@ -175,6 +212,7 @@ func unmarshalByType(doc *Document, v reflect.Value, tag xpathTag) error {
 func unmarshalLiteral(s string, v reflect.Value, required bool) error {
 	t := v.Type()
 
+	trimmedValue := strings.TrimSpace(s)
 	switch t.Kind() {
 	case reflect.Interface:
 		if t.NumMethod() == 0 {
@@ -184,16 +222,16 @@ func unmarshalLiteral(s string, v reflect.Value, required bool) error {
 			v.Set(nv)
 		}
 	case reflect.Bool:
-		i, err := strconv.ParseBool(s)
+		i, err := strconv.ParseBool(trimmedValue)
 		if err != nil {
-			if required {
-				return err
-			}
-			return nil
+			return err
 		}
 		v.SetBool(i)
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		i, err := strconv.ParseInt(s, 10, 64)
+		if trimmedValue == "" {
+			return nil
+		}
+		i, err := strconv.ParseInt(trimmedValue, 10, 64)
 		if err != nil {
 			if required {
 				return err
@@ -202,7 +240,10 @@ func unmarshalLiteral(s string, v reflect.Value, required bool) error {
 		}
 		v.SetInt(i)
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		i, err := strconv.ParseUint(s, 10, 64)
+		if trimmedValue == "" {
+			return nil
+		}
+		i, err := strconv.ParseUint(trimmedValue, 10, 64)
 		if err != nil {
 			if required {
 				return err
@@ -211,7 +252,10 @@ func unmarshalLiteral(s string, v reflect.Value, required bool) error {
 		}
 		v.SetUint(i)
 	case reflect.Float32, reflect.Float64:
-		i, err := strconv.ParseFloat(s, 64)
+		if trimmedValue == "" {
+			return nil
+		}
+		i, err := strconv.ParseFloat(trimmedValue, 64)
 		if err != nil {
 			if required {
 				return err
@@ -266,14 +310,23 @@ func unmarshalStruct(doc *Document, v reflect.Value) error {
 		}
 
 		if !tag.required && sel.IsEmpty() {
-			break
+			continue
+		}
+
+		if sel.IsEmpty() {
+			return &CannotUnmarshalError{
+				V:      v,
+				Reason: nodeNotFound,
+				XPath:  tag.tag,
+			}
 		}
 
 		if err := unmarshalByType(sel, v.Field(i), tag); err != nil {
 			return &CannotUnmarshalError{
-				Reason:   typeConversionError,
-				Err:      err,
 				V:        v,
+				Reason:   typeConversionError,
+				XPath:    tag.tag,
+				Err:      err,
 				FldOrIdx: t.Field(i).Name,
 			}
 		}
@@ -284,8 +337,9 @@ func unmarshalStruct(doc *Document, v reflect.Value) error {
 func unmarshalArray(doc *Document, v reflect.Value, tag xpathTag) error {
 	if v.Type().Len() != len(doc.Nodes) {
 		return &CannotUnmarshalError{
-			Reason: arrayLengthMismatch,
 			V:      v,
+			Reason: arrayLengthMismatch,
+			XPath:  tag.tag,
 		}
 	}
 
@@ -293,9 +347,10 @@ func unmarshalArray(doc *Document, v reflect.Value, tag xpathTag) error {
 		err := unmarshalByType(doc.Eq(i), v.Index(i), tag)
 		if err != nil {
 			return &CannotUnmarshalError{
-				Reason:   typeConversionError,
-				Err:      err,
 				V:        v,
+				Reason:   typeConversionError,
+				XPath:    tag.tag,
+				Err:      err,
 				FldOrIdx: i,
 			}
 		}
@@ -308,6 +363,7 @@ func unmarshalSlice(doc *Document, v reflect.Value, tag xpathTag) error {
 	slice := v
 	eleT := v.Type().Elem()
 
+	v.SetLen(0)
 	for i := 0; i < doc.Length(); i++ {
 		newV := reflect.New(TypeDeref(eleT))
 
@@ -315,9 +371,10 @@ func unmarshalSlice(doc *Document, v reflect.Value, tag xpathTag) error {
 
 		if err != nil {
 			return &CannotUnmarshalError{
-				Reason:   typeConversionError,
-				Err:      err,
 				V:        v,
+				Reason:   typeConversionError,
+				XPath:    tag.tag,
+				Err:      err,
 				FldOrIdx: i,
 			}
 		}

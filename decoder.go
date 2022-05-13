@@ -7,7 +7,7 @@ import (
 
 // Decoder implements the same API you will see in encoding/xml and
 // encoding/json except that we do not currently support proper streaming
-// decoding as it is not supported by htmlquery upstream.
+// decoding as it is not supported by goquery upstream.
 type Decoder struct {
 	err     error
 	topNode *html.Node
@@ -33,5 +33,5 @@ func (d *Decoder) Decode(dest interface{}) error {
 		}
 	}
 
-	return UnmarshalSelection(newDocumentWithNode(d.topNode), dest)
+	return UnmarshalSelection(NewDocumentWithNode(d.topNode), dest)
 }

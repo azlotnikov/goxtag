@@ -15,13 +15,13 @@ type Document struct {
 	Nodes []*html.Node
 }
 
-func newDocumentWithNode(node *html.Node) *Document {
+func NewDocumentWithNode(node *html.Node) *Document {
 	return &Document{
 		Nodes: []*html.Node{node},
 	}
 }
 
-func newDocumentWithNodes(nodes []*html.Node) *Document {
+func NewDocumentWithNodes(nodes []*html.Node) *Document {
 	return &Document{
 		Nodes: nodes,
 	}
@@ -41,12 +41,13 @@ func (doc *Document) Html() (ret string, e error) {
 	var buf bytes.Buffer
 
 	if len(doc.Nodes) > 0 {
-		for c := doc.Nodes[0].FirstChild; c != nil; c = c.NextSibling {
-			e = html.Render(&buf, c)
+		for _, node := range doc.Nodes {
+			e = html.Render(&buf, node)
 			if e != nil {
 				return
 			}
 		}
+
 		ret = buf.String()
 	}
 
@@ -85,7 +86,7 @@ func (doc *Document) Attr(attrName string) (val string, exists bool) {
 }
 
 func (doc *Document) Find(selector string) *Document {
-	return newDocumentWithNodes(htmlquery.Find(doc.Nodes[0], selector))
+	return NewDocumentWithNodes(htmlquery.Find(doc.Nodes[0], selector))
 }
 
 func (doc *Document) FindOne(selector string) (*Document, error) {
@@ -94,7 +95,7 @@ func (doc *Document) FindOne(selector string) (*Document, error) {
 	if node != nil {
 		nodes = []*html.Node{node}
 	}
-	return newDocumentWithNodes(nodes), nil
+	return NewDocumentWithNodes(nodes), nil
 }
 
 func (doc *Document) Eq(index int) *Document {
@@ -118,7 +119,7 @@ func (doc *Document) Slice(start, end int) *Document {
 	} else if end < 0 {
 		end += len(doc.Nodes)
 	}
-	return newDocumentWithNodes(doc.Nodes[start:end])
+	return NewDocumentWithNodes(doc.Nodes[start:end])
 }
 
 func getAttributeValue(attrName string, n *html.Node) (val string, exists bool) {

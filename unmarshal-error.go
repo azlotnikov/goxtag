@@ -9,22 +9,24 @@ import (
 // this list
 const (
 	nonPointer             = "non-pointer value"
-	nilValue               = "destination argument is nil"
+	nodeNotFound           = "node not found in document"
+	nilDestination         = "destination is nil"
 	arrayLengthMismatch    = "array length does not match document elements found"
 	customUnmarshalError   = "a custom Unmarshaler implementation threw an error"
 	typeConversionError    = "a type conversion error occurred"
 	mapIsNotSupportedError = "map type is not currently supported"
+	multipleNodesDetected  = "multiple nodes detected for selector"
 )
 
-// CannotUnmarshalError represents an error returned by the htmlquery Unmarshaler
+// CannotUnmarshalError represents an error returned by the goqxtag Unmarshaler
 // and helps consumers in programmatically diagnosing the cause of their error.
 type CannotUnmarshalError struct {
 	Err      error
 	Val      string
 	FldOrIdx interface{}
-
-	V      reflect.Value
-	Reason string
+	V        reflect.Value
+	Reason   string
+	XPath    string
 }
 
 // This type is a mid-level abstraction to help understand the error printing logic
@@ -54,7 +56,6 @@ func (e errChain) tPath() string {
 			case *int:
 				nest += fmt.Sprintf("[%d]", *nesting)
 			default:
-				fmt.Printf("err.FldOrIdx = %#v\n", err.FldOrIdx)
 				nest += fmt.Sprintf("[%v]", nesting)
 			}
 		}
@@ -83,13 +84,21 @@ func (e errChain) Error() string {
 		msg += fmt.Sprintf("value %q ", e.val)
 	}
 
-	msg += fmt.Sprintf(
-		"into '%s%s' (type %s): %s",
-		e.chain[0].V.Type(),
-		e.tPath(),
-		t,
-		last.Reason,
-	)
+	v := e.chain[0].V
+
+	if v.CanAddr() {
+		msg += fmt.Sprintf(
+			"into '%s%s' (type %s): %s",
+			v.Type(),
+			e.tPath(),
+			t,
+			last.Reason,
+		)
+	}
+
+	if last.XPath != "" {
+		msg += fmt.Sprintf(" tag: '%s'", last.XPath)
+	}
 
 	// If a generic error was reported elsewhere, report its message last
 	if e.tail != nil {
