@@ -41,3 +41,9 @@ func main() {
     log.Println(ex.Title, ex.Files)
 }
 ```
+
+## Details
+* You can find info about `CannotUnmarshalError` in [unmarshal-error.go](unmarshal-error.go)
+* Use `xpath_required:"false"` if you don't need `node not found in document` error for not found nodes
+* Use `xpath:"-"` to ignore field
+* Use `Unmarshal(b []byte, v interface{}) error` for custom unmarshal
